@@ -1,0 +1,8 @@
+opencv-python-headless
+numpy
+pytesseract
+mss
+obs-websocket-py
+python-dotenv
+watchdog
+Pillow
