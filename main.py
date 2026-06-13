@@ -1,9 +1,11 @@
 import os
+import sys
 import pytesseract
 import time
 import mss
 import numpy as np
 import cv2
+import logging
 
 from obswebsocket import obsws, requests
 from dotenv import load_dotenv
@@ -14,6 +16,31 @@ from watchdog.events import FileSystemEventHandler
 from threading import Thread, Lock
 
 load_dotenv()
+
+log_enabled = os.getenv("LOG_ENABLED", "false").lower() == "true"
+
+if log_enabled:
+    logging.basicConfig(
+        filename="jw_obs.log",
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        encoding="utf-8",
+    )
+
+def log(msg):
+    print(msg)
+    if log_enabled:
+        logging.info(msg)
+
+def handle_exception(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    if log_enabled:
+        logging.critical("💥 Erro fatal não capturado:", exc_info=(exc_type, exc_value, exc_tb))
+
+sys.excepthook = handle_exception
 
 obs_url = os.getenv("OBS_URL")
 obs_port = int(os.getenv("OBS_PORT"))
@@ -49,10 +76,10 @@ def connect_obs():
         try:
             ws = obsws(obs_url, obs_port, obs_password)
             ws.connect()
-            print("✅ Conectado ao OBS WebSocket")
+            log("✅ Conectado ao OBS WebSocket")
             return ws
         except:
-            print("❌ Falha ao conectar no OBS. Tentando novamente em 3s...")
+            log("❌ Falha ao conectar no OBS. Tentando novamente em 3s...")
             time.sleep(3)
 
 
@@ -65,7 +92,7 @@ class JWHandler(FileSystemEventHandler):
         if not event.is_directory and "_true" in os.path.basename(event.src_path):
             with lock:
                 video_active = True
-            print("📂 _true detectado")
+            log("📂 _true detectado")
 
     def on_deleted(self, event):
         global video_active, video_just_ended
@@ -73,7 +100,7 @@ class JWHandler(FileSystemEventHandler):
             with lock:
                 video_active = False
                 video_just_ended = True
-            print("📂 _true removido")
+            log("📂 _true removido")
 
 
 def start_watchdog():
@@ -86,9 +113,9 @@ def start_watchdog():
         observer = Observer()
         observer.schedule(JWHandler(), path=path_to_watch, recursive=False)
         observer.start()
-        print("👀 Monitorando pasta JWLibrary...")
+        log("👀 Monitorando pasta JWLibrary...")
     else:
-        print("⚠️ Pasta não encontrada:", path_to_watch)
+        log(f"⚠️ Pasta não encontrada: {path_to_watch}")
 
 
 # =========================
@@ -152,7 +179,7 @@ def get_monitor_safe(index):
             if len(monitors) > index:
                 return monitors[index]
             else:
-                print(f"⚠️ Monitor {index} não detectado ainda. Esperando 2s...")
+                log(f"⚠️ Monitor {index} não detectado ainda. Esperando 2s...")
                 time.sleep(2)
 
 
@@ -189,7 +216,7 @@ def run_ocr():
                 time.sleep(time_sleep)
 
             except Exception as e:
-                print(f"⚠️ OCR erro: {e}")
+                log(f"⚠️ OCR erro: {e}")
                 time.sleep(1)
 
 
@@ -209,7 +236,7 @@ def main_loop(ws):
             try:
                 ws.call(requests.GetVersion())  # ping simples
             except:
-                print("⚠️ Conexão com OBS perdida! Reconectando...")
+                log("⚠️ Conexão com OBS perdida! Reconectando...")
                 ws = connect_obs()
 
             with lock:
@@ -239,10 +266,10 @@ def main_loop(ws):
             ):
                 if current_state == '1':
                     ws.call(requests.SetCurrentProgramScene(sceneName=scene_camera))
-                    print("🎥 Cena: CAMERA")
+                    log("🎥 Cena: CAMERA")
                 else:
                     ws.call(requests.SetCurrentProgramScene(sceneName=scene_monitor))
-                    print("🖥️ Cena: MONITOR")
+                    log("🖥️ Cena: MONITOR")
 
                 last_state = current_state
                 last_switch_time = now
@@ -250,7 +277,7 @@ def main_loop(ws):
             time.sleep(0.05)
 
         except Exception as e:
-            print(f"⚠️ Loop erro: {e}")
+            log(f"⚠️ Loop erro: {e}")
             time.sleep(1)
 
 
